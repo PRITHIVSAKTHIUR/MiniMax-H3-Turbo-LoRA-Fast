@@ -1,0 +1,30 @@
+# `diffusers` is installed from the canonical MiniMax-H3 pull request,
+# https://github.com/huggingface/diffusers/pull/14371 ("Minimax h3 follow up (review & refactor)"), pinned to a
+# **commit** rather than to its `minimax-h3-refactor` branch: the PR is a WIP and its head moves, and this Space's
+# blocks subclass its block classes. Re-pin — and re-check `h3_split_blocks.py` against the block names of the new
+# head — whenever the PR updates.
+#
+#   665f578278365ea4a3318cb8c9b66ce6c01204b9 = refs/pull/14371/head at the time of this deploy
+--extra-index-url https://download.pytorch.org/whl/cu130
+diffusers @ git+https://github.com/huggingface/diffusers.git@665f578278365ea4a3318cb8c9b66ce6c01204b9
+torch==2.11.0
+torchvision==0.26.0
+# The Qwen3-VL processor decides the vision patch count, so a different minor changes the conditioning.
+transformers==5.8.0
+accelerate==1.14.0
+# diffusers pins <2.
+huggingface-hub==1.24.0
+# Track Gradio's main branch (https://github.com/gradio-app/gradio) via the prebuilt preview wheel — installing
+# from git does not build the frontend assets, so the app never serves. a9ce60ae03123ed6374b739d862e62dcae2f451e
+# = refs/heads/main at the time of this deploy; re-pin to the new head (and bump `sdk_version` in README.md if the
+# version changed) to move past it.
+gradio
+spaces==0.51.1
+# No `kernels` pin on purpose: the Hub attention backends want `kernels>=0.12.3`, and that version breaks
+# transformers 5.8.0 at import.
+# PyAV muxes the generated soundtrack onto the frames (`encode_video`).
+av
+pillow
+numpy
+requests
+safetensors>=0.8.0
