@@ -1,4 +1,4 @@
-# **MiniMax-H3-Turbo-LoRA-Fast**
+# **[MiniMax-H3-Turbo-LoRA-Fast](https://huggingface.co/spaces/prithivMLmods/MiniMax-H3-Turbo-LoRA-Fast)**
 
 MiniMax-H3-Turbo-LoRA-Fast is the denoising half of a modular, split-architecture deployment designed for high-resolution, long-form video generation (up to 20 seconds) with native audio support. Because full MiniMax-H3 model weights total nearly 200 GiB in bfloat16, this deployment splits execution across environments: the 62.14 GiB Qwen3-VL text encoder runs inside an external conditioning Space (`multimodalart/qwen3vl-conditioner`), while this engine loads the core transformer backbones and visual/audio VAEs to execute sampling and decoding loops.
 
