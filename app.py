@@ -53,9 +53,8 @@ PIPELINE_MAX_DURATION = MAX_UI_DURATION + 1.0
 CHUNK_SECONDS = float(os.environ.get("H3_CHUNK_SECONDS", "14"))
 CONDITIONER_MAX_FRAMES = int(os.environ.get("H3_CONDITIONER_MAX_FRAMES", "345"))
 
-# Allowed GPU-duration choices (seconds) exposed in the Advanced panel.
 GPU_DURATION_CHOICES = (60, 90, 120, 150, 180, 250)
-DEFAULT_GPU_DURATION = 90
+DEFAULT_GPU_DURATION = 120
 
 OUTPUT_DIR = os.path.join(tempfile.gettempdir(), "h3-outputs")
 
@@ -101,19 +100,6 @@ def _set_lora(transformer, name: str) -> str:
         return h3_lora.set_active(transformer, name)
     except Exception:
         return "off"
-
-
-def status() -> str:
-    if LOAD_ERROR:
-        return LOAD_ERROR
-    if PIPE is None:
-        return f"Loading `{MODEL_REPO}` (transformer + VAEs, 77.3 GB). See the Space logs."
-    audio_note = "video-only pipeline active" if MUTE_PIPE is not None else f"video-only pipeline not available ({MUTE_ERROR})"
-    return (
-        f"Ready · transformer + VAEs **bfloat16, unquantized** · placement `{PLACEMENT}` · attention `{ATTENTION}` "
-        f"· {LORA_STATUS or 'no LoRA'} · {audio_note} · window {MIN_UI_DURATION:g}–{MAX_UI_DURATION:g}s "
-        f"· loaded in {LOADED_IN:.0f}s · conditioner `{CONDITIONER_SPACE}`"
-    )
 
 
 def load_models() -> str | None:
@@ -253,11 +239,8 @@ def get_duration(
     prompt_embeds, text_token_tags, image, last_image, height, width, num_frames, steps, seed,
     lora="larry", with_audio=True, gpu_duration=DEFAULT_GPU_DURATION, *a, **k
 ):
-    """Duration callback for `@spaces.GPU`.
-
-    Honors an explicit user override (`gpu_duration`) when it is one of the
-    allowed choices; otherwise falls back to the empirical estimate.
-    """
+    """Duration callback for `@spaces.GPU`. Honors an explicit user override (`gpu_duration`) when it is one of
+    the allowed choices; otherwise falls back to the empirical estimate."""
     if gpu_duration:
         try:
             value = int(gpu_duration)
@@ -337,7 +320,7 @@ def _fit_keyframe(image_path, current_canvas):
     return image_path, label
 
 
-LORA_NAMES = ("larry", "lightx", "lightx8", "realism", "joyfox", "H3-Facial-Realism-CloseUp", "off")
+LORA_NAMES = ("larry", "lightx", "lightx8", "realism", "joyfox", "H3-Facial-Realism-CloseUp", "H3-I2V-Anime-Motion", "off")
 
 
 def _resolve_lora(lora) -> str:
@@ -455,7 +438,6 @@ def generate(
     duration = max(MIN_UI_DURATION, min(float(duration), MAX_UI_DURATION))
     with_audio = bool(with_audio)
 
-    # Normalize GPU-duration override to one of the allowed choices.
     try:
         gpu_duration = int(gpu_duration)
     except (TypeError, ValueError):
@@ -567,26 +549,9 @@ def cost_hint(canvas, duration, mode, steps, first_frame, last_frame, with_audio
         return f"(estimate unavailable: {error})"
 
 
-INTRO = f"""# MiniMax-H3-Turbo-LoRA-Fast
-
-Denoising half of a split deployment: the 62 GiB Qwen3-VL text encoder runs in
-[`{CONDITIONER_SPACE}`](https://huggingface.co/spaces/{CONDITIONER_SPACE}); this Space holds only the transformer
-and the VAEs.
-
-* **First/Last Frame** — both optional and usable individually. A last frame alone means "generate *towards* this image".
-* **Length** — `single` is one pass with a raised ceiling (H3 is trained up to 15 s; beyond that is experimental).
-  `chain` cuts the video into clips of at most {CHUNK_SECONDS:g}s and hands the last frame of each clip to the next.
-* **Audio** — when disabled, the audio VAE is never declared, never moved to the GPU and never decoded. The audio
-  rows themselves are always denoised by H3; they are part of the same packed sequence.
-* **GPU Duration** — override the ZeroGPU booking per clip in the Advanced panel
-  (choices: {', '.join(str(v) for v in GPU_DURATION_CHOICES)} s; default {DEFAULT_GPU_DURATION} s).
-"""
-
-
 with gr.Blocks(title="MiniMax-H3-Turbo-LoRA-Fast") as demo:
-    gr.Markdown(INTRO)
-    banner = gr.Markdown(status())
-
+    gr.Markdown("""# MiniMax-H3-Turbo-LoRA-Fast""")
+    
     with gr.Row():
         with gr.Column(scale=3):
             prompt = gr.Textbox(
@@ -609,7 +574,7 @@ with gr.Blocks(title="MiniMax-H3-Turbo-LoRA-Fast") as demo:
                 label="Length (s)", info="Rounded up to the next 17n+5 at 24 fps.",
             )
             with gr.Row():
-                with_audio = gr.Checkbox(label="Generate audio", value=True)
+                with_audio = gr.Checkbox(label="Generate audio", value=False)
                 upsample = gr.Checkbox(label="Prompt upsampling (+15–50s)", value=False)
             with gr.Accordion("Advanced", open=False):
                 steps = gr.Slider(2, 12, value=6, step=1, label="Steps")
@@ -636,7 +601,6 @@ with gr.Blocks(title="MiniMax-H3-Turbo-LoRA-Fast") as demo:
     for control in cost_inputs:
         control.change(cost_hint, cost_inputs, cost)
     demo.load(cost_hint, cost_inputs, cost)
-    demo.load(status, None, banner)
 
     run_button.click(
         run,
@@ -649,4 +613,4 @@ with gr.Blocks(title="MiniMax-H3-Turbo-LoRA-Fast") as demo:
 load_models()
 
 if __name__ == "__main__":
-    demo.queue(default_concurrency_limit=1, max_size=8).launch(show_error=True, allowed_paths=[OUTPUT_DIR])
+    demo.queue(default_concurrency_limit=1, max_size=10).launch(theme=gr.themes.Citrus(), show_error=True, allowed_paths=[OUTPUT_DIR])
