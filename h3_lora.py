@@ -38,17 +38,22 @@ The supported checkpoints ship in different layouts:
   to fold into.
 
 * `H3-Facial-Realism-CloseUp` (`prithivMLmods/MiniMax-H3-Facial-Realism-CloseUp`) is a close-up facial realism
-  style LoRA, not a turbo one — it wants the full step count, not 4–6. Its layout is detected at load time:
-  PEFT keys against the diffusers tree map name-for-name, everything else is treated as the reference tree
-  (with or without the `diffusion_model.` prefix) and goes through `_larry_targets`. Per-key scalar `alpha`
-  values are folded into `lora_B` as `alpha / rank` when present, otherwise `alpha == rank` is assumed;
-  reference-tree `adaln_proj` entries whose input dim is not the 2688-dim time embedding of the diffusers tree
-  are skipped, like joyfox's.
+  style LoRA, not a turbo one — it wants the full step count, not 4–6. Its layout is detected at load time by
+  `_load_auto`: PEFT keys against the diffusers tree map name-for-name, everything else is treated as the
+  reference tree (with or without the `diffusion_model.` prefix) and goes through `_larry_targets`. Per-key
+  scalar `alpha` values are folded into `lora_B` as `alpha / rank` when present, otherwise `alpha == rank` is
+  assumed; reference-tree `adaln_proj` entries whose input dim is not the 2688-dim time embedding of the
+  diffusers tree are skipped, like joyfox's.
+
+* `H3-I2V-Anime-Motion` (`prithivMLmods/MiniMax-H3-I2V-Anime-Motion-LoRA`) is an anime motion style LoRA built
+  for image-to-video, trigger word `Anime-Motion` — put the trigger word in the prompt and pair the set with a
+  first frame for the intended effect. It wants the full step count, not 4–6, and is loaded through the same
+  `_load_auto` layout detection as the facial LoRA.
 
 `H3_LORA` selects the larry file (`off` skips loading it), `H3_LIGHTX=off` skips lightx, `H3_REALISM=off` skips
 realism, `H3_JOYFOX=off` skips joyfox, `H3_LIGHTX8=off` skips the lightx 8-step file, `H3_FACIAL=off` skips the
-facial realism LoRA, `H3_LORA_DEFAULT` picks which set starts folded, and `H3_LORA_STRENGTH` is the larry card's
-sharpness/artifact dial.
+facial realism LoRA, `H3_ANIME=off` skips the anime motion LoRA, `H3_LORA_DEFAULT` picks which set starts
+folded, and `H3_LORA_STRENGTH` is the larry card's sharpness/artifact dial.
 """
 
 from __future__ import annotations
@@ -70,6 +75,9 @@ JOYFOX_FILE = os.environ.get("H3_JOYFOX_FILE", "minimax_h3_fl2va_4step_lora.safe
 FACIAL_REPO = os.environ.get("H3_FACIAL_REPO", "prithivMLmods/MiniMax-H3-Facial-Realism-CloseUp")
 FACIAL_FILE = os.environ.get("H3_FACIAL_FILE", "minimax-h3-facial-realism-closeup-cp2000.safetensors")
 FACIAL_NAME = "H3-Facial-Realism-CloseUp"
+ANIME_REPO = os.environ.get("H3_ANIME_REPO", "prithivMLmods/MiniMax-H3-I2V-Anime-Motion-LoRA")
+ANIME_FILE = os.environ.get("H3_ANIME_FILE", "MiniMax-H3-I2V-Anime-Motion-LoRA-1400.safetensors")
+ANIME_NAME = "H3-I2V-Anime-Motion"
 LARRY_STRENGTH = float(os.environ.get("H3_LORA_STRENGTH", "1.0"))
 DEFAULT_LORA = os.environ.get("H3_LORA_DEFAULT", "larry")
 
@@ -177,17 +185,17 @@ def _load_joyfox(inner_dim: int) -> dict:
     }
 
 
-def _load_facial(inner_dim: int) -> dict:
-    """Close-up facial realism style LoRA. The checkpoint layout is detected at load time: PEFT keys against the
-    diffusers tree map name-for-name, everything else is treated as the reference tree (with or without a
-    `diffusion_model.` prefix) and goes through `_larry_targets`. Per-key scalar `alpha` is folded into `lora_B`
-    as `alpha / rank`; reference-tree `adaln_proj` entries whose input dim is not the 2688-dim time embedding of
-    the diffusers tree are skipped, like joyfox's."""
+def _load_auto(repo: str, file: str, inner_dim: int) -> dict:
+    """Style LoRA whose checkpoint layout is detected at load time: PEFT keys against the diffusers tree map
+    name-for-name, everything else is treated as the reference tree (with or without a `diffusion_model.`
+    prefix) and goes through `_larry_targets`. Per-key scalar `alpha` is folded into `lora_B` as `alpha / rank`
+    when present, otherwise `alpha == rank` is assumed; reference-tree `adaln_proj` entries whose input dim is
+    not the 2688-dim time embedding of the diffusers tree are skipped, like joyfox's."""
     from huggingface_hub import hf_hub_download
     from safetensors.torch import load_file
 
-    lora = load_file(hf_hub_download(FACIAL_REPO, FACIAL_FILE))
-    label = f"{FACIAL_REPO}/{FACIAL_FILE}"
+    lora = load_file(hf_hub_download(repo, file))
+    label = f"{repo}/{file}"
 
     suffix_a, suffix_b = ".lora_A.default.weight", ".lora_B.default.weight"
     if any(key.endswith(suffix_a) for key in lora):
@@ -215,6 +223,14 @@ def _load_facial(inner_dim: int) -> dict:
             b = b * (alpha.item() / a.shape[0])
         entries.extend((key, a, b_part) for key, b_part in _larry_targets(name, b, inner_dim))
     return {"label": label, "scale": 1.0, "entries": entries}
+
+
+def _load_facial(inner_dim: int) -> dict:
+    return _load_auto(FACIAL_REPO, FACIAL_FILE, inner_dim)
+
+
+def _load_anime(inner_dim: int) -> dict:
+    return _load_auto(ANIME_REPO, ANIME_FILE, inner_dim)
 
 
 def _apply(entries, params, sign: float) -> None:
@@ -255,6 +271,8 @@ def apply_lora(transformer) -> str | None:
         sets["joyfox"] = _load_joyfox(inner_dim)
     if os.environ.get("H3_FACIAL", "on").lower() not in ("", "off", "none"):
         sets[FACIAL_NAME] = _load_facial(inner_dim)
+    if os.environ.get("H3_ANIME", "on").lower() not in ("", "off", "none"):
+        sets[ANIME_NAME] = _load_anime(inner_dim)
     if not sets:
         return None
 
